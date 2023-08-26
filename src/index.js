@@ -11,18 +11,34 @@ const ref = {
 	gallery: document.querySelector('.gallery'),
 	searchForm: document.querySelector('.search-form'),
 	btnLoadmore: document.querySelector('.load-more'),
+	divLoadmore: document.querySelector('.button-cont'),
 	radioBtn: document.querySelector('#flexSwitchCheckDefault'),
 	scrollbar: document.querySelector('.scrollbar'),
 };
+
 const paramFetch = {
 	searchItem: '',
 	page: 1,
 	perPage: 15,
-	countFoundItem: 1,
+	countFoundItem: 0,
+	countPage: 0,
+
+	calcTotalPage() {
+		this.countPage = Math.ceil(this.countFoundItem / this.perPage);
+	},
+	calcTotalItem(res) {
+		this.countFoundItem = res.hits.length === 0 ? res.hits.length : res.totalHits;
+	},
 };
+
+const options = {
+	rootMargin: '1px',
+};
+
+const observer = new IntersectionObserver(onClickLoadmore, options);
+
 const windowHeight = document.documentElement.clientHeight - 85;
 let loadStatus = true;
-let memScrollY = window.pageYOffset;
 
 ref.searchForm.addEventListener('submit', onSearchClickBtn);
 ref.btnLoadmore.addEventListener('click', onClickLoadmore);
@@ -55,11 +71,15 @@ function markupFetchSearchItem() {
 	Loading.dots();
 	fetchImage(paramFetch)
 		.then(res => {
-			paramFetch.countFoundItem = res.hits.length === 0 ? res.hits.length : res.totalHits;
+			paramFetch.calcTotalItem(res);
+			paramFetch.calcTotalPage();
 
 			if (paramFetch.countFoundItem) {
 				Notify.success(`Hooray! We found ${paramFetch.countFoundItem} images.`);
 				updatePage(res);
+				if (ref.radioBtn.checked && paramFetch.countFoundItem && paramFetch.countPage > 1) {
+					observer.observe(ref.divLoadmore);
+				}
 			} else {
 				Notify.info('Nothing was found according to your request.');
 			}
@@ -73,26 +93,38 @@ function markupFetchSearchItem() {
 		});
 }
 
-function onClickLoadmore() {
-	Loading.dots();
-	fetchImage(paramFetch)
-		.then(res => {
-			const countPage = Math.ceil(paramFetch.countFoundItem / paramFetch.perPage);
-
-			if (countPage <= paramFetch.page) {
-				ref.btnLoadmore.classList.add('is-hidden');
-				Notify.info("We're sorry, but you've reached the end of search results.");
+function onClickLoadmore(entries) {
+	let intersectingBlock = false;
+	if (!entries.isTrusted) {
+		entries.forEach(entry => {
+			if (entry.isIntersecting) {
+				intersectingBlock = true;
 			}
-			updatePage(res);
-			scrollWindow();
-		})
-		.catch(error => {
-			Notify.failure('Unable to load results.');
-		})
-		.finally(() => {
-			Loading.remove(350);
-			loadStatus = false;
 		});
+	}
+	if (intersectingBlock || !ref.radioBtn.checked) {
+		Loading.dots();
+		fetchImage(paramFetch)
+			.then(res => {
+				if (paramFetch.countPage <= paramFetch.page) {
+					if (ref.radioBtn.checked) {
+						observer.unobserve(ref.divLoadmore);
+					}
+					ref.btnLoadmore.classList.add('is-hidden');
+					Notify.info("We're sorry, but you've reached the end of search results.");
+				}
+				updatePage(res);
+				scrollWindow();
+			})
+			.catch(error => {
+				observer.unobserve(ref.divLoadmore);
+				Notify.failure('Unable to load results.');
+			})
+			.finally(() => {
+				Loading.remove(350);
+				loadStatus = false;
+			});
+	}
 }
 
 function updatePage(res) {
@@ -115,22 +147,6 @@ function onScrollLoadMore() {
 	const statusBar = (currentScrollY / (galleryPosHeigth - windowHeight + btnHeigth)) * 100;
 
 	ref.scrollbar.style.width = `${statusBar}vw`;
-
-	if (!ref.radioBtn.checked) {
-		return;
-	}
-
-	const countPage = Math.ceil(paramFetch.countFoundItem / paramFetch.perPage);
-	if (
-		pageYOffset > galleryPosHeigth - windowHeight &&
-		loadStatus === false &&
-		memScrollY < currentScrollY &&
-		countPage >= paramFetch.page
-	) {
-		memScrollY = window.pageYOffset;
-		loadStatus = true;
-		onClickLoadmore();
-	}
 }
 
 function onClickChange() {
@@ -141,12 +157,17 @@ function onClickChange() {
 	ref.radioBtn.checked && ref.gallery.childElementCount
 		? ref.btnLoadmore.classList.add('is-hidden')
 		: ref.btnLoadmore.classList.remove('is-hidden');
+	if (!ref.radioBtn.checked) {
+		observer.unobserve(ref.divLoadmore);
+	} else {
+		observer.observe(ref.divLoadmore);
+	}
 }
 
 function scrollWindow() {
 	const { height: cardHeight } = ref.gallery.firstElementChild.getBoundingClientRect();
 	window.scrollBy({
-		top: cardHeight * 5,
+		top: cardHeight * 2,
 		behavior: 'smooth',
 	});
 }
@@ -186,7 +207,7 @@ function resetParamNewSearch() {
 	ref.gallery.innerHTML = '';
 	paramFetch.page = 1;
 	paramFetch.countFoundItem = 1;
-	memScrollY = window.pageYOffset;
 	ref.scrollbar.style.width = `0vw`;
 	ref.btnLoadmore.classList.add('is-hidden');
+	observer.unobserve(ref.divLoadmore);
 }
