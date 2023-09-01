@@ -94,10 +94,11 @@ function markupFetchSearchItem() {
 }
 
 function onClickLoadmore(entries) {
+	const viewportHeight = window.innerHeight;
 	let intersectingBlock = false;
 	if (!entries.isTrusted) {
 		entries.forEach(entry => {
-			if (entry.isIntersecting) {
+			if (entry.isIntersecting && entry.boundingClientRect.top > viewportHeight - 10) {
 				intersectingBlock = true;
 			}
 		});
